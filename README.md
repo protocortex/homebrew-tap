@@ -11,8 +11,7 @@ brew install liam              # prebuilt binaries from the latest tagged releas
 brew install --HEAD liam       # builds liam's main branch from source with cargo
 ```
 
-Recent Homebrew versions refuse to load formulae from a tap you have not trusted. If you see
-"Refusing to load formula ... from untrusted tap", run `brew trust protocortex/tap` and retry.
+See [Trust the tap](#trust-the-tap) if Homebrew refuses to load the formula.
 
 Both install `liamd` (the daemon) and `liam` (the CLI), built with the `local` and `llama`
 features so embeddings and generation are real, not mock. The HEAD build compiles llama.cpp
@@ -21,6 +20,22 @@ through CMake and takes a long time on a cold build.
 The stable formula points at the release archive
 `liam-vX.Y.Z-aarch64-apple-darwin-netinstall.tar.gz` and its published sha256. Until a newer
 tag is cut it is v0.1.1, which is older than main.
+
+## Trust the tap
+
+Recent Homebrew versions (checked on 7.0.12) refuse to load formulae from a tap you have not
+trusted. Trust is stored in `~/.homebrew/trust.json`, or in `$XDG_CONFIG_HOME/homebrew/trust.json`
+when that variable is set. Official taps are always trusted.
+
+- `brew install protocortex/tap/liam` trusts only that formula. A later `brew upgrade liam` by short
+  name then works. Without that, Homebrew stops with `Refusing to load formula ... from untrusted
+  tap` and names the command to run.
+- `brew tap protocortex/tap` alone does not trust anything. After it, `brew info liam` is refused
+  until you run `brew trust --formula protocortex/tap/liam`.
+- `brew trust protocortex/tap` trusts the whole tap, including formulae added later. The `--tap`
+  flag is optional.
+- `brew trust` lists what you trust. `brew untrust protocortex/tap` and
+  `brew untrust --formula protocortex/tap/liam` remove an entry.
 
 ## After install
 
@@ -64,27 +79,13 @@ you want the data gone.
 
 ## Maintainers
 
-### CI
+Do not edit the stable `url` or `sha256` by hand. A release of LIAM opens a pull request here that
+rewrites them from the release's `SHA256SUMS` with `.github/scripts/bump-formula.sh`. See
+[docs/release-automation.md](docs/release-automation.md) for the flow, the credentials it needs, and
+how to run it by hand. The checks are in `.github/workflows/tests.yml` (syntax, the bump script,
+and an install of the stable build on two macOS versions) and `.github/workflows/head.yml` (the
+slow HEAD build).
 
-`.github/workflows/ci.yml` runs on macOS arm64: `brew style`, `brew audit --strict --online`,
-`brew test-bot --only-tap-syntax`, then `brew install` plus `brew test` for the stable build and
-for `--HEAD --build-from-source`.
+## Security
 
-### Automatic bump on a liam release
-
-1. liam's `Homebrew bump` workflow runs after its `Release` workflow succeeds on a `vX.Y.Z` tag
-   and sends a `repository_dispatch` (event type `liam-release`, payload `tag`) to this repo.
-2. `.github/workflows/bump.yml` downloads the release archive and its `.sha256`, checks they
-   agree, then runs `brew bump-formula-pr` to open a PR updating the url and sha256. CI runs on
-   that PR. A daily schedule and a manual run (optional `tag` input) cover a missed dispatch.
-
-Two secrets must be created by hand. They do not exist until someone makes them:
-
-| Where | Secret name | Token | Permissions |
-|---|---|---|---|
-| `protocortex/liam` | `HOMEBREW_TAP_DISPATCH_TOKEN` | Fine-grained PAT, resource owner `protocortex`, only repository `protocortex/homebrew-tap` | Contents: Read and write (needed to call the repository dispatch API) |
-| `protocortex/homebrew-tap` | `TAP_BUMP_TOKEN` | Fine-grained PAT, resource owner `protocortex`, only repository `protocortex/homebrew-tap` | Contents: Read and write, Pull requests: Read and write |
-
-One PAT with all three permissions can back both secrets. A PAT is used rather than
-`GITHUB_TOKEN` because pull requests opened with `GITHUB_TOKEN` do not start the CI workflow.
-The organization must allow fine-grained PATs, and the owner may need to approve the token.
+See [SECURITY.md](SECURITY.md).
