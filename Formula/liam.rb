@@ -2,11 +2,19 @@ class Liam < Formula
   desc "Bi-temporal memory for AI agents, served over MCP"
   homepage "https://github.com/protocortex/liam"
   # The stable tarball is the release's prebuilt Apple Silicon netinstall
-  # archive (liamd and liam, built with `--features local,llama`). The sha256
-  # matches the .sha256 file published beside it.
+  # archive (liamd and liam, built with `--features local,llama`). Do not edit
+  # the url or sha256 by hand: .github/scripts/bump-formula.sh writes them from
+  # the release's SHA256SUMS.
   url "https://github.com/protocortex/liam/releases/download/v0.1.1/liam-v0.1.1-aarch64-apple-darwin-netinstall.tar.gz"
   sha256 "f79e25dc0612641bca61a2495a54117778b7ae363c761fc425406fe5bc9f62ca"
   license "Apache-2.0"
+
+  livecheck do
+    url :stable
+    strategy :github_releases
+    regex(/^v(\d+(?:\.\d+)+)$/i)
+  end
+
   # Mirrors the build flags in liam's release workflow: `local` supplies the
   # real embedder and reranker, `llama` supplies generation. llama-cpp-sys-2
   # compiles llama.cpp through CMake, so a HEAD build is slow on a cold cache.
@@ -66,7 +74,7 @@ class Liam < Formula
   end
 
   def caveats
-    <<~EOS
+    text = <<~EOS
       Models are not downloaded by the install (several gigabytes). To finish setup:
 
         mkdir -p ~/.liam
@@ -92,6 +100,10 @@ class Liam < Formula
       on the first connection, because Homebrew services cannot hand launchd a
       Unix socket. Run `brew services stop liam` to stop it.
     EOS
+    # A HEAD build has no release, so it gets no release notes link.
+    return text if build.head?
+
+    text + "\nRelease notes: https://github.com/protocortex/liam/releases/tag/v#{version}\n"
   end
 
   service do
@@ -104,6 +116,15 @@ class Liam < Formula
   test do
     assert_match "liamd", shell_output("#{bin}/liamd --version")
     assert_match "liam", shell_output("#{bin}/liam --version")
+    unless build.head?
+      # Stable binaries must report the formula version. The v0.1.1 release was
+      # tagged without bumping Cargo.toml, so its binaries still print 0.1.0.
+      # This exception goes away with the next bump, since the check only
+      # applies while the formula is at 0.1.1.
+      expected = (version.to_s == "0.1.1") ? "0.1.0" : version.to_s
+      assert_match expected, shell_output("#{bin}/liamd --version")
+      assert_match expected, shell_output("#{bin}/liam --version")
+    end
     assert_match "serve", shell_output("#{bin}/liamd --help")
     assert_match "fetch-models", shell_output("#{bin}/liam --help")
     assert_path_exists pkgshare/"liam.toml"
