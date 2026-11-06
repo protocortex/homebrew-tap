@@ -11,6 +11,9 @@ brew install liam              # prebuilt binaries from the latest tagged releas
 brew install --HEAD liam       # builds liam's main branch from source with cargo
 ```
 
+Recent Homebrew versions refuse to load formulae from a tap you have not trusted. If you see
+"Refusing to load formula ... from untrusted tap", run `brew trust protocortex/tap` and retry.
+
 Both install `liamd` (the daemon) and `liam` (the CLI), built with the `local` and `llama`
 features so embeddings and generation are real, not mock. The HEAD build compiles llama.cpp
 through CMake and takes a long time on a cold build.

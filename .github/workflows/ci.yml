@@ -21,13 +21,15 @@ env:
 jobs:
   # Style and the strict online audit, plus test-bot's own tap syntax checks.
   syntax:
-    runs-on: macos-14
+    runs-on: macos-latest
     timeout-minutes: 20
     permissions:
       contents: read
     steps:
       - name: Set up Homebrew
         uses: Homebrew/actions/setup-homebrew@55301c8cac0982bc2fbeb71275fa0b71b963bdb1 # main
+      - name: Trust this tap
+        run: brew trust --tap protocortex/tap
       - name: brew style
         run: brew style protocortex/tap
       - name: brew audit
@@ -37,13 +39,15 @@ jobs:
 
   # The stable url is the prebuilt release archive, so this job is quick.
   stable:
-    runs-on: macos-14
+    runs-on: macos-latest
     timeout-minutes: 20
     permissions:
       contents: read
     steps:
       - name: Set up Homebrew
         uses: Homebrew/actions/setup-homebrew@55301c8cac0982bc2fbeb71275fa0b71b963bdb1 # main
+      - name: Trust this tap
+        run: brew trust --tap protocortex/tap
       - name: Install
         run: brew install --verbose protocortex/tap/liam
       - name: Test
@@ -52,13 +56,15 @@ jobs:
   # Builds liam's main branch from source with cargo, `--features local,llama`.
   # llama.cpp compiles through CMake, so this is the slow job.
   head:
-    runs-on: macos-14
+    runs-on: macos-latest
     timeout-minutes: 120
     permissions:
       contents: read
     steps:
       - name: Set up Homebrew
         uses: Homebrew/actions/setup-homebrew@55301c8cac0982bc2fbeb71275fa0b71b963bdb1 # main
+      - name: Trust this tap
+        run: brew trust --tap protocortex/tap
       - name: Install from HEAD
         run: brew install --HEAD --build-from-source --verbose protocortex/tap/liam
       - name: Test
