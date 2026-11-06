@@ -25,6 +25,10 @@ class Liam < Formula
       # Homebrew's OpenSSL on the build machine breaks llama.cpp's CMake and
       # its HTTPS support is unused. Same workaround as the release workflow.
       ENV["CMAKE_DISABLE_FIND_PACKAGE_OpenSSL"] = "ON"
+      # llama.cpp's CMake wires in sccache or ccache when it finds one under
+      # /opt/homebrew, but the brew build PATH hides it and every compile fails
+      # with "sccache: command not found". llama-cpp-sys-2 forwards GGML_*.
+      ENV["GGML_CCACHE"] = "OFF"
       system "cargo", "install", *std_cargo_args(path: "crates/liam-daemon"),
              "--features", "local,llama"
       (pkgshare/"liam.toml").write release_config(File.read("liam.toml"))
