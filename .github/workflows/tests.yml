@@ -1,0 +1,176 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  HOMEBREW_NO_ANALYTICS: "1"
+  HOMEBREW_NO_AUTO_UPDATE: "1"
+  # brew audit --online reads the GitHub API.
+  HOMEBREW_GITHUB_API_TOKEN: ${{ github.token }}
+
+jobs:
+  # test-bot's own tap checks: style, audit and the formula syntax rules.
+  syntax:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Set up Homebrew
+        uses: Homebrew/actions/setup-homebrew@55301c8cac0982bc2fbeb71275fa0b71b963bdb1 # main
+
+      - name: Check out the tap
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Link the checkout as the tap
+        run: |
+          tap_dir="$(brew --repository)/Library/Taps/protocortex"
+          mkdir -p "$tap_dir"
+          rm -rf "$tap_dir/homebrew-tap"
+          ln -s "$GITHUB_WORKSPACE" "$tap_dir/homebrew-tap"
+
+      - name: Trust this tap
+        run: brew trust --tap protocortex/tap
+
+      - name: Audit and style check
+        run: |
+          brew test-bot --only-cleanup-before
+          brew test-bot --only-setup
+          brew test-bot --only-tap-syntax
+
+  # Runs bump-formula.sh and latest-release.sh against local release folders
+  # and a stub gh, then checks the style of the formula a bump writes.
+  bump-script:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Set up Homebrew
+        uses: Homebrew/actions/setup-homebrew@55301c8cac0982bc2fbeb71275fa0b71b963bdb1 # main
+
+      - name: Check out the tap
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Link the checkout as the tap
+        run: |
+          tap_dir="$(brew --repository)/Library/Taps/protocortex"
+          mkdir -p "$tap_dir"
+          rm -rf "$tap_dir/homebrew-tap"
+          ln -s "$GITHUB_WORKSPACE" "$tap_dir/homebrew-tap"
+
+      - name: Trust this tap
+        run: brew trust --tap protocortex/tap
+
+      # The cleanup removes files git does not track, so the test runs after
+      # it and leaves the formula a bump writes for the style check.
+      - name: Test bump-formula.sh and style check what it writes
+        run: |
+          brew test-bot --only-cleanup-before
+          brew test-bot --only-setup
+          .github/scripts/test-bump-formula.sh --keep
+          brew test-bot --only-tap-syntax
+
+  # Installs the stable formula from the prebuilt release archive, so it is
+  # quick. Two macOS versions, because the archive is built on one runner image
+  # and a user may run another. The HEAD build is in head.yml.
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-26]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Set up Homebrew
+        uses: Homebrew/actions/setup-homebrew@55301c8cac0982bc2fbeb71275fa0b71b963bdb1 # main
+
+      - name: Check out the tap
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Link the checkout as the tap
+        run: |
+          tap_dir="$(brew --repository)/Library/Taps/protocortex"
+          mkdir -p "$tap_dir"
+          rm -rf "$tap_dir/homebrew-tap"
+          ln -s "$GITHUB_WORKSPACE" "$tap_dir/homebrew-tap"
+
+      - name: Trust this tap
+        run: brew trust --tap protocortex/tap
+
+      - name: Audit, install, test and uninstall every formula
+        run: |
+          set -euo pipefail
+          for f in Formula/*.rb; do
+            name="$(basename "$f" .rb)"
+            brew audit --strict --online "protocortex/tap/${name}"
+            # A disabled or deprecated formula is only audited, since it is on
+            # its way out and points to its replacement.
+            if [ "$(brew info --json=v2 "protocortex/tap/${name}" | jq -r '.formulae[0] | .disabled or .deprecated')" = true ]; then
+              echo "${name} is disabled or deprecated, so it is audited only."
+              continue
+            fi
+            brew install --verbose "protocortex/tap/${name}"
+            brew test "protocortex/tap/${name}"
+            brew uninstall "protocortex/tap/${name}"
+          done
+
+  # Scheduled runs only. Goes red when liam has a newer release that the
+  # formula does not follow and no release pull request is open for it, so a
+  # stopped release does not go unnoticed.
+  current:
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Check out the tap
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Compare the formula with the latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          latest="$(.github/scripts/latest-release.sh)"
+          if [ -z "$latest" ]; then
+            echo "No liam release carries a SHA256SUMS file yet. Nothing to compare."
+            exit 0
+          fi
+          current="$(sed -nE 's#^  url ".*/download/v([0-9][0-9.]*)/.*#\1#p' Formula/liam.rb | head -n1)"
+          if [ "$(printf '%s\n' "$current" "$latest" | sort -V | tail -n1)" = "$current" ]; then
+            echo "The formula is at ${current}, the latest release is ${latest}."
+            exit 0
+          fi
+          open="$(gh pr list --head "release/v${latest}" --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$open" ]; then
+            echo "Pull request #${open} moves the formula to ${latest}."
+            exit 0
+          fi
+          echo "::error::The formula is at ${current}, but liam ${latest} is released and no release pull request is open." >&2
+          exit 1
