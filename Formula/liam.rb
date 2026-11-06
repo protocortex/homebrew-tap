@@ -7,18 +7,18 @@ class Liam < Formula
   url "https://github.com/protocortex/liam/releases/download/v0.1.1/liam-v0.1.1-aarch64-apple-darwin-netinstall.tar.gz"
   sha256 "f79e25dc0612641bca61a2495a54117778b7ae363c761fc425406fe5bc9f62ca"
   license "Apache-2.0"
-  head "https://github.com/protocortex/liam.git", branch: "main"
-
-  depends_on arch: :arm64
-  depends_on :macos
-
   # Mirrors the build flags in liam's release workflow: `local` supplies the
   # real embedder and reranker, `llama` supplies generation. llama-cpp-sys-2
   # compiles llama.cpp through CMake, so a HEAD build is slow on a cold cache.
   head do
+    url "https://github.com/protocortex/liam.git", branch: "main"
+
     depends_on "cmake" => :build
     depends_on "rust" => :build
   end
+
+  depends_on arch: :arm64
+  depends_on :macos
 
   def install
     if build.head?
