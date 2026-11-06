@@ -29,6 +29,11 @@ class Liam < Formula
       # /opt/homebrew, but the brew build PATH hides it and every compile fails
       # with "sccache: command not found". llama-cpp-sys-2 forwards GGML_*.
       ENV["GGML_CCACHE"] = "OFF"
+      # The cc crate takes its deployment target from `xcrun --show-sdk-version`,
+      # which can be newer than the SDK brew compiles against (26.2 on a macOS 15
+      # host). llama.cpp's vendored subprocess.h then calls an API only that newer
+      # SDK declares. Pin the target to the running OS.
+      ENV["MACOSX_DEPLOYMENT_TARGET"] = MacOS.version.to_s
       system "cargo", "install", *std_cargo_args(path: "crates/liam-daemon"),
              "--features", "local,llama"
       (pkgshare/"liam.toml").write release_config(File.read("liam.toml"))
