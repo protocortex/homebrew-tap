@@ -42,6 +42,8 @@ jobs:
     steps:
       - name: Set up Homebrew
         uses: Homebrew/actions/setup-homebrew@55301c8cac0982bc2fbeb71275fa0b71b963bdb1 # main
+      - name: Trust this tap
+        run: brew trust --tap protocortex/tap
 
       - name: Resolve the release asset
         id: asset
