@@ -1,0 +1,117 @@
+name: release-tag
+
+# The liam release workflow opens release/vX.Y.Z here with the formula of liam
+# vX.Y.Z. When that pull request merges, this workflow tags the merge commit
+# vX.Y.Z and publishes a release that lists the formula version. Running it
+# again keeps a tag that points at the same commit and a release that exists,
+# and it refuses to move a tag that points elsewhere.
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  tag:
+    # Only a merged pull request from the app, on a release branch of this
+    # repository.
+    if: >-
+      github.event.pull_request.merged == true
+      && github.event.pull_request.user.login == 'igorjs[bot]'
+      && startsWith(github.event.pull_request.head.ref, 'release/v')
+      && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # On the job, so only release runs queue here and a closed pull request
+    # of another kind cannot cancel a pending one.
+    concurrency:
+      group: release-tag
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the merge commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Tag and release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          tag="${BRANCH#release/}"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::branch ${BRANCH} does not name a release vX.Y.Z." >&2
+            exit 1
+          fi
+          if [[ ! "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::pull request #${PR} has no merge commit." >&2
+            exit 1
+          fi
+
+          # The tag covers formula changes only, even when someone pushed to
+          # the app's branch before the merge.
+          other="$(git diff --name-only HEAD^ HEAD | grep -v '^Formula/[a-z-]*\.rb$' || true)"
+          if [ -n "$other" ]; then
+            echo "::error::#${PR} changes more than formulas: ${other//$'\n'/ }. Nothing was changed." >&2
+            exit 1
+          fi
+
+          # The merge commit must be on main, so the tag never lands on a
+          # commit outside its history.
+          status="$(gh api "repos/${REPO}/compare/${SHA}...main" --jq .status)"
+          if [ "$status" != identical ] && [ "$status" != ahead ]; then
+            echo "::error::${SHA} is not on main (compare says ${status}). Nothing was changed." >&2
+            exit 1
+          fi
+
+          # The tag. One that exists must point at the merge commit, and an
+          # annotated tag is followed to its commit.
+          if ref="$(gh api "repos/${REPO}/git/ref/tags/${tag}")"; then
+            type="$(jq -r .object.type <<<"$ref")"
+            at="$(jq -r .object.sha <<<"$ref")"
+            if [ "$type" = tag ]; then
+              at="$(gh api "repos/${REPO}/git/tags/${at}" --jq .object.sha)"
+            fi
+            if [ "$at" != "$SHA" ]; then
+              echo "::error::${tag} points at ${at}, not at the merge commit ${SHA} of #${PR}. Nothing was changed." >&2
+              exit 1
+            fi
+            echo "${tag} already points at ${SHA}."
+          elif [ "$(jq -r '.status // empty' <<<"$ref")" = 404 ]; then
+            gh api -X POST "repos/${REPO}/git/refs" -f "ref=refs/tags/${tag}" -f "sha=${SHA}" >/dev/null
+            echo "Tagged ${SHA} as ${tag}."
+          else
+            echo "::error::could not read the tag ${tag}: ${ref}" >&2
+            exit 1
+          fi
+
+          if gh release view "$tag" --repo "$REPO" >/dev/null 2>&1; then
+            echo "The release ${tag} exists."
+            exit 0
+          fi
+          {
+            echo "Formula versions for liam ${tag}, from #${PR}:"
+            echo
+            for f in Formula/*.rb; do
+              name="$(basename "$f" .rb)"
+              # A disabled or deprecated formula no longer follows the
+              # releases, so the notes leave it out.
+              if grep -Eq '^  (disable|deprecate)!' "$f"; then
+                continue
+              fi
+              version="$(sed -nE 's#^  url ".*/download/v([0-9][0-9.]*)/.*#\1#p' "$f" | head -n1)"
+              echo "- ${name}: ${version:-unknown}"
+            done
+          } >"$RUNNER_TEMP/notes.md"
+          gh release create "$tag" --repo "$REPO" --verify-tag --latest \
+            --title "$tag" --notes-file "$RUNNER_TEMP/notes.md"
+          echo "Published the release ${tag}."

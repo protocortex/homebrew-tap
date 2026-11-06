@@ -1,0 +1,5 @@
+# Every file needs maintainer review. Workflows and scripts decide what reaches
+# users' machines, so they are named on their own line as well.
+* @igorjs
+/.github/ @igorjs
+/Formula/ @igorjs
