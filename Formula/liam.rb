@@ -2,7 +2,7 @@ class Liam < Formula
   desc "Bi-temporal memory for AI agents, served over MCP"
   homepage "https://github.com/protocortex/liam"
   # The stable tarball is the release's prebuilt Apple Silicon netinstall
-  # archive (liamd and liam, built with `--features local,llama`). Do not edit
+  # archive (liamd and liam). Do not edit
   # the url or sha256 by hand: .github/scripts/bump-formula.sh writes them from
   # the release's SHA256SUMS.
   url "https://github.com/protocortex/liam/releases/download/v0.1.1/liam-v0.1.1-aarch64-apple-darwin-netinstall.tar.gz"
@@ -42,8 +42,7 @@ class Liam < Formula
       # host). llama.cpp's vendored subprocess.h then calls an API only that newer
       # SDK declares. Pin the target to the running OS.
       ENV["MACOSX_DEPLOYMENT_TARGET"] = MacOS.version.to_s
-      system "cargo", "install", *std_cargo_args(path: "crates/liam-daemon"),
-             "--features", "local,llama"
+      system "cargo", "install", *std_cargo_args(path: "crates/liam-daemon")
       (pkgshare/"liam.toml").write release_config(File.read("liam.toml"))
     else
       bin.install "liamd", "liam"
